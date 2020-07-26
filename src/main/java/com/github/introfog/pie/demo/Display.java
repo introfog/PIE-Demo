@@ -1,25 +1,30 @@
-package com.introfog.pie.demo;
+package com.github.introfog.pie.demo;
 
-import com.introfog.pie.core.shape.Circle;
-import com.introfog.pie.core.shape.IShape;
-import com.introfog.pie.core.shape.Polygon;
-import com.introfog.pie.core.collisionDetection.BroadPhase;
-import com.introfog.pie.core.math.MathPIE;
-import com.introfog.pie.core.math.Vector2f;
+import com.github.introfog.pie.core.Body;
+import com.github.introfog.pie.core.collisions.broadphase.AbstractBroadPhase;
+import com.github.introfog.pie.core.collisions.broadphase.BruteForceMethod;
+import com.github.introfog.pie.core.shape.Circle;
+import com.github.introfog.pie.core.shape.IShape;
+import com.github.introfog.pie.core.shape.Polygon;
+import com.github.introfog.pie.core.math.MathPIE;
+import com.github.introfog.pie.core.math.Vector2f;
+import com.github.introfog.pie.core.util.ShapeIOUtil;
 
 import java.awt.Color;
 import java.awt.Graphics;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
+
+import java.util.ArrayList;
+import java.util.List;
 
 import javax.swing.JPanel;
 import javax.swing.Timer;
 
-import static com.introfog.pie.demo.Main.world;
+import static com.github.introfog.pie.demo.Main.world;
 
 public class Display extends JPanel implements ActionListener {
     private float deltaTime;
@@ -37,20 +42,22 @@ public class Display extends JPanel implements ActionListener {
     private float currXNewBody = 0f;
     private PrintWriter out;
 
-    public Display() {
+    public Display() throws IOException {
         Timer timer = new Timer(0, this);
         timer.start();
         addMouseListener(new MouseEvents());
 
         initializeBodies();
+        //initializeShapesForTest();
         world.setCollisionSolveIterations(10);
         previousTime = System.nanoTime();
 
-        try {
-            out = new PrintWriter(new FileWriter(".\\tests\\Test something.txt"));
-        } catch (IOException e) {
-            System.out.println("Error with new FileWriter");
-        }
+//        try {
+//            //out = new PrintWriter(new FileWriter("./target/test/com/github/introfog/pie/demo/Test something.txt"));
+//            out = new PrintWriter(new FileWriter(".\\Test something.txt"));
+//        } catch (IOException e) {
+//            System.out.println("Error with new FileWriter: " + e.getMessage());
+//        }
     }
 
     public void paint(Graphics g) {
@@ -63,8 +70,8 @@ public class Display extends JPanel implements ActionListener {
         g.setColor(Color.BLACK);
 
         g.drawString("FPS: " + (int) (1 / deltaTime), 2, 12);
-        g.drawString("Bodies: " + world.getBodies().size(), 2, 24);
-        g.drawString("Version: 0.2", 2, 36);
+        g.drawString("Bodies: " + world.getUnmodifiableShapes().size(), 2, 24);
+        g.drawString("Version: 1.1-SNAPSHOT", 2, 36);
 
         //testProductivity ();
         //testBodiesPenetration ();
@@ -77,6 +84,23 @@ public class Display extends JPanel implements ActionListener {
     @Override
     public void actionPerformed(ActionEvent e) {
         repaint();
+    }
+
+    private void initializeShapesForTest() throws IOException {
+        List<IShape> shapes = new ArrayList<>();
+        final float RADIUS = 5;
+        for (int i = 0; i < 10; i++) {
+            for (int j = 0; j < 10; j++) {
+                shapes.add(new Circle(RADIUS, 50f + i * (2 * RADIUS - 1), 50f + j * (2 * RADIUS - 1), MathPIE.STATIC_BODY_DENSITY, 0.2f));
+            }
+        }
+        ShapeIOUtil.writeShapesToFile(shapes, ".\\Core\\src\\test\\resource\\com\\introfog\\pie\\core\\2500shapes_simple collision.json");
+
+        AbstractBroadPhase broadPhase = new BruteForceMethod();
+        broadPhase.setShapes(shapes);
+        ShapeIOUtil.writeShapePairsToFile(broadPhase.calculateAabbCollisions(),
+                ".\\Core\\src\\test\\resource\\com\\introfog\\pie\\core\\2500shapes_simple collision_answer.json");
+        world.setShapes(shapes);
     }
 
     private void initializeBodies() {
@@ -101,7 +125,7 @@ public class Display extends JPanel implements ActionListener {
                 currYNewBody += SIZE + 1f;
             }
 
-            if (world.getBodies().size() % 2 == 0) {
+            if (world.getUnmodifiableShapes().size() % 2 == 0) {
                 rectangle = Polygon
                         .generateRectangle(currXNewBody * (SIZE + 1f) + SIZE / 2f, currYNewBody + SIZE / 2f, SIZE, SIZE,
                                 1f,
@@ -110,8 +134,8 @@ public class Display extends JPanel implements ActionListener {
                 float dt = deltaTime * 100000;
                 dt = Math.round(dt);
                 dt /= 100000;
-                out.print("Bodies: " + world.getBodies().size() + "\tdt: " + dt);
-                out.println("\tMay be collision bodies: \tIntersects oper.:" + BroadPhase.INTERSECTED_COUNTER);
+                out.print("Bodies: " + world.getUnmodifiableShapes().size() + "\tdt: " + dt);
+                out.println("\tMay be collision bodies: \tIntersects oper.: some integer");
                 out.flush();
             } else {
                 circle = new Circle(SIZE / 2f, currXNewBody * (SIZE + 1f) + SIZE / 2f, currYNewBody + SIZE / 2f, 0.4f, 0.5f);
@@ -133,32 +157,34 @@ public class Display extends JPanel implements ActionListener {
     }
 
     private void draw(Graphics graphics) {
-        world.getBodies().forEach((body) -> {
-            if (body.shape instanceof Polygon) {
-                Polygon polygon = (Polygon) body.shape;
+        world.getUnmodifiableShapes().forEach((shape) -> {
+            Body body = shape.body;
+            if (shape instanceof Polygon) {
+                Polygon polygon = (Polygon) shape;
 
                 if (Main.ENABLE_DEBUG_DRAW) {
                     drawAABB(graphics, polygon);
                 }
 
                 graphics.setColor(Color.BLUE);
-
+                Vector2f tmpV = new Vector2f();
+                Vector2f tmpV2 = new Vector2f();
                 for (int i = 0; i < polygon.vertexCount; i++) {
-                    polygon.tmpV.set(polygon.vertices[i]);
-                    polygon.rotateMatrix.mul(polygon.tmpV, polygon.tmpV);
-                    polygon.tmpV.add(body.position);
+                    tmpV.set(polygon.vertices[i]);
+                    polygon.rotateMatrix.mul(tmpV, tmpV);
+                    tmpV.add(body.position);
 
-                    polygon.tmpV2.set(polygon.vertices[(i + 1) % polygon.vertexCount]);
-                    polygon.rotateMatrix.mul(polygon.tmpV2, polygon.tmpV2);
-                    polygon.tmpV2.add(body.position);
-                    graphics.drawLine((int) polygon.tmpV.x, (int) polygon.tmpV.y, (int) polygon.tmpV2.x,
-                            (int) polygon.tmpV2.y);
+                    tmpV2.set(polygon.vertices[(i + 1) % polygon.vertexCount]);
+                    polygon.rotateMatrix.mul(tmpV2, tmpV2);
+                    tmpV2.add(body.position);
+                    graphics.drawLine((int) tmpV.x, (int) tmpV.y, (int) tmpV2.x,
+                            (int) tmpV2.y);
                 }
 
                 graphics.drawLine((int) body.position.x, (int) body.position.y, (int) body.position.x,
                         (int) body.position.y);
-            } else if (body.shape instanceof Circle) {
-                Circle circle = (Circle) body.shape;
+            } else if (shape instanceof Circle) {
+                Circle circle = (Circle) shape;
 
                 if (Main.ENABLE_DEBUG_DRAW) {
                     drawAABB(graphics, circle);
