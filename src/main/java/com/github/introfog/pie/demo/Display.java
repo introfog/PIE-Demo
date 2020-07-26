@@ -1,6 +1,10 @@
 package com.github.introfog.pie.demo;
 
 import com.github.introfog.pie.core.Body;
+import com.github.introfog.pie.core.Context;
+import com.github.introfog.pie.core.collisions.broadphase.aabbtree.AABBTreeMethod;
+import com.github.introfog.pie.core.collisions.broadphase.aabbtree.AABBTreeNode;
+import com.github.introfog.pie.core.shape.AABB;
 import com.github.introfog.pie.core.shape.Circle;
 import com.github.introfog.pie.core.shape.IShape;
 import com.github.introfog.pie.core.shape.Polygon;
@@ -12,6 +16,7 @@ import java.awt.Graphics;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 
+import java.lang.reflect.Field;
 import javax.swing.JPanel;
 import javax.swing.Timer;
 
@@ -44,7 +49,11 @@ public class Display extends JPanel implements ActionListener {
         g.drawString("Version: 1.1-SNAPSHOT", 2, 36);
 
         world.update(deltaTime);
-        draw(g);
+        try {
+            draw(g);
+        } catch (NoSuchFieldException | IllegalAccessException e) {
+            e.printStackTrace();
+        }
     }
 
     @Override
@@ -62,14 +71,40 @@ public class Display extends JPanel implements ActionListener {
         world.addShape(polygon);
     }
 
-    private void draw(Graphics graphics) {
+    private void drawNode(Graphics graphics, AABBTreeNode node) throws NoSuchFieldException, IllegalAccessException {
+        Field field = node.getClass().getDeclaredField("aabb");
+        field.setAccessible(true);
+        AABB aabb = (AABB) field.get(node);
+        drawAABB(graphics, aabb);
+        field = node.getClass().getDeclaredField("children");
+        field.setAccessible(true);
+        AABBTreeNode[] children = (AABBTreeNode[]) field.get(node);
+        if (children[0] != null) {
+            drawNode(graphics, children[0]);
+            drawNode(graphics, children[1]);
+        }
+    }
+
+    private void draw(Graphics graphics) throws NoSuchFieldException, IllegalAccessException {
+        if (Main.ENABLE_AABB_TREE_DRAW) {
+            Field field = world.getClass().getDeclaredField("context");
+            field.setAccessible(true);
+            Context context = (Context) field.get(world);
+            AABBTreeMethod method = (AABBTreeMethod) context.getBroadPhaseMethod();
+            field = method.getClass().getDeclaredField("root");
+            field.setAccessible(true);
+            AABBTreeNode root = (AABBTreeNode) field.get(method);
+            drawNode(graphics, root);
+        }
+
         world.getUnmodifiableShapes().forEach((shape) -> {
+            shape.computeAABB();
             Body body = shape.body;
             if (shape instanceof Polygon) {
                 Polygon polygon = (Polygon) shape;
 
                 if (Main.ENABLE_DEBUG_DRAW) {
-                    drawAABB(graphics, polygon);
+                    drawAABB(graphics, polygon.aabb);
                 }
 
                 graphics.setColor(Color.BLUE);
@@ -93,7 +128,7 @@ public class Display extends JPanel implements ActionListener {
                 Circle circle = (Circle) shape;
 
                 if (Main.ENABLE_DEBUG_DRAW) {
-                    drawAABB(graphics, circle);
+                    drawAABB(graphics, circle.aabb);
                 }
                 graphics.setColor(Color.RED);
                 graphics.drawLine((int) body.position.x, (int) body.position.y,
@@ -122,11 +157,10 @@ public class Display extends JPanel implements ActionListener {
         }
     }
 
-    private void drawAABB(Graphics graphics, IShape shape) {
-        shape.computeAABB();
+    private void drawAABB(Graphics graphics, AABB aabb) {
         graphics.setColor(Color.GRAY);
-        graphics.drawRect((int) shape.aabb.min.x, (int) shape.aabb.min.y,
-                (int) (shape.aabb.max.x - shape.aabb.min.x),
-                (int) (shape.aabb.max.y - shape.aabb.min.y));
+        graphics.drawRect((int) aabb.min.x, (int) aabb.min.y,
+                (int) (aabb.max.x - aabb.min.x),
+                (int) (aabb.max.y - aabb.min.y));
     }
 }
